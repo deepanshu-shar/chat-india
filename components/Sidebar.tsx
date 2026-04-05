@@ -8,9 +8,15 @@ interface User {
   isOnline: boolean;
 }
 
-export default function Sidebar() {
+interface Props {
+  currentUserId: string;
+  onConversationSelect: (conversation: any) => void;
+}
+
+export default function Sidebar({ currentUserId, onConversationSelect }: Props) {
   const [search, setSearch] = useState("");
   const [users, setUsers] = useState<User[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchUsers() {
@@ -20,6 +26,19 @@ export default function Sidebar() {
     }
     fetchUsers();
   }, [search]);
+
+  async function handleUserClick(user: User) {
+    setSelectedUserId(user._id);
+
+    const res = await fetch("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ participantId: user._id }),
+    });
+
+    const data = await res.json();
+    onConversationSelect({ ...data.conversation, otherUser: user });
+  }
 
   return (
     <div className="w-1/3 bg-white border-r border-gray-300 flex flex-col">
@@ -50,14 +69,14 @@ export default function Sidebar() {
         {users.map((user) => (
           <div
             key={user._id}
-            className="flex items-center p-3 hover:bg-gray-100 cursor-pointer border-b"
+            onClick={() => handleUserClick(user)}
+            className={`flex items-center p-3 cursor-pointer border-b hover:bg-gray-100 
+              ${selectedUserId === user._id ? "bg-green-50 border-l-4 border-l-green-600" : ""}`}
           >
-            {/* Avatar */}
             <div className="relative mr-3">
               <div className="w-12 h-12 bg-green-400 rounded-full flex items-center justify-center text-white font-bold text-lg">
                 {user.name.charAt(0).toUpperCase()}
               </div>
-              {/* Online indicator */}
               {user.isOnline && (
                 <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
               )}
