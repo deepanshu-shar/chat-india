@@ -17,7 +17,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-[#111b21]">
       <Sidebar
         currentUserId={currentUserId}
         onConversationSelect={setSelectedConversation}
