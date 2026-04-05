@@ -22,32 +22,25 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
   const [text, setText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Socket connect karo
   useEffect(() => {
     if (!currentUserId) return;
-
     socket.connect();
     socket.emit("user-online", currentUserId);
-
-    // Message receive karo
     socket.on("receive-message", (message: Message) => {
       setMessages((prev) => [...prev, message]);
     });
-
     return () => {
       socket.off("receive-message");
       socket.disconnect();
     };
   }, [currentUserId]);
 
-  // Room join karo jab conversation change ho
   useEffect(() => {
     if (!conversation) return;
     fetchMessages();
     socket.emit("join-room", conversation._id);
   }, [conversation]);
 
-  // Naye message pe scroll karo
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -60,48 +53,43 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
 
   async function sendMessage() {
     if (!text.trim() || !conversation) return;
-
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        conversationId: conversation._id,
-        text,
-      }),
+      body: JSON.stringify({ conversationId: conversation._id, text }),
     });
-
     const data = await res.json();
-
-    // Socket se bhejo
     socket.emit("send-message", {
       conversationId: conversation._id,
       message: data.message,
     });
-
-   
     setText("");
   }
 
   if (!conversation) {
     return (
-      <div className="w-2/3 bg-gray-50 flex flex-col items-center justify-center">
-        <p className="text-gray-400 text-lg">Kisi user pe click karo chat shuru karne ke liye</p>
+      <div className="w-2/3 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800">
+        <p className="text-gray-400 dark:text-gray-500 text-lg">
+          💬 Kisi user pe click karo chat shuru karne ke liye
+        </p>
       </div>
     )
   }
 
   return (
-    <div className="w-2/3 bg-gray-50 flex flex-col">
+    <div className="w-2/3 flex flex-col bg-gray-50 dark:bg-gray-800">
 
       {/* Chat Header */}
-      <div className="flex items-center p-4 bg-white border-b border-gray-300">
+      <div className="flex items-center p-4 bg-green-600 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="w-10 h-10 bg-green-400 rounded-full flex items-center justify-center text-white font-bold mr-3">
           {conversation.otherUser?.name.charAt(0).toUpperCase()}
         </div>
         <div>
-          <p className="font-semibold text-gray-800">{conversation.otherUser?.name}</p>
-          <p className="text-xs text-gray-500">
-            {conversation.otherUser?.isOnline ? "Online" : "Offline"}
+          <p className="font-semibold text-white">
+            {conversation.otherUser?.name}
+          </p>
+          <p className="text-xs text-green-100 dark:text-gray-400">
+            {conversation.otherUser?.isOnline ? "🟢 Online" : "Offline"}
           </p>
         </div>
       </div>
@@ -109,7 +97,7 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 && (
-          <p className="text-center text-gray-400 text-sm mt-4">
+          <p className="text-center text-gray-400 dark:text-gray-500 text-sm mt-4">
             Abhi tak koi message nahi — pehla message bhejo! 👋
           </p>
         )}
@@ -118,15 +106,13 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
             key={msg._id}
             className={`flex mb-3 ${msg.sender._id === currentUserId ? "justify-end" : "justify-start"}`}
           >
-            <div
-              className={`p-3 rounded-lg shadow-sm max-w-xs ${
-                msg.sender._id === currentUserId
-                  ? "bg-green-100"
-                  : "bg-white"
-              }`}
-            >
-              <p className="text-sm text-gray-800">{msg.text}</p>
-              <p className="text-xs text-gray-400 text-right mt-1">
+            <div className={`p-3 rounded-lg shadow-sm max-w-xs ${
+              msg.sender._id === currentUserId
+                ? "bg-green-100 dark:bg-green-900"
+                : "bg-white dark:bg-gray-700"
+            }`}>
+              <p className="text-sm text-gray-800 dark:text-gray-100">{msg.text}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 text-right mt-1">
                 {new Date(msg.createdAt).toLocaleTimeString("en-IN", {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -139,14 +125,14 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
       </div>
 
       {/* Message Input */}
-      <div className="flex items-center p-3 bg-white border-t border-gray-300">
+      <div className="flex items-center p-3 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
         <input
           type="text"
           placeholder="Message likho..."
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          className="flex-1 p-2 rounded-full bg-gray-100 outline-none text-sm px-4 text-gray-800"
+          className="flex-1 p-2 rounded-full bg-gray-100 dark:bg-gray-700 outline-none text-sm px-4 text-gray-800 dark:text-gray-100"
         />
         <button
           onClick={sendMessage}
