@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import socket from "@/lib/socket";
 
 interface Message {
   _id: string;
@@ -21,11 +22,32 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
   const [text, setText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Socket connect karo
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    socket.connect();
+    socket.emit("user-online", currentUserId);
+
+    // Message receive karo
+    socket.on("receive-message", (message: Message) => {
+      setMessages((prev) => [...prev, message]);
+    });
+
+    return () => {
+      socket.off("receive-message");
+      socket.disconnect();
+    };
+  }, [currentUserId]);
+
+  // Room join karo jab conversation change ho
   useEffect(() => {
     if (!conversation) return;
     fetchMessages();
+    socket.emit("join-room", conversation._id);
   }, [conversation]);
 
+  // Naye message pe scroll karo
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -49,7 +71,14 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
     });
 
     const data = await res.json();
-    setMessages((prev) => [...prev, data.message]);
+
+    // Socket se bhejo
+    socket.emit("send-message", {
+      conversationId: conversation._id,
+      message: data.message,
+    });
+
+   
     setText("");
   }
 

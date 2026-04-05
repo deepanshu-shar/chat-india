@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import socket from "@/lib/socket";
 
 interface User {
   _id: string;
@@ -26,6 +27,19 @@ export default function Sidebar({ currentUserId, onConversationSelect }: Props) 
     }
     fetchUsers();
   }, [search]);
+
+  // Online status real-time update
+  useEffect(() => {
+    socket.on("user-status-change", ({ userId, isOnline }) => {
+      setUsers((prev) =>
+        prev.map((u) => (u._id === userId ? { ...u, isOnline } : u))
+      );
+    });
+
+    return () => {
+      socket.off("user-status-change");
+    };
+  }, []);
 
   async function handleUserClick(user: User) {
     setSelectedUserId(user._id);
@@ -81,9 +95,11 @@ export default function Sidebar({ currentUserId, onConversationSelect }: Props) 
                 <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
               )}
             </div>
-            <div>
+            <div className="flex-1">
               <p className="font-semibold text-gray-800">{user.name}</p>
-              <p className="text-sm text-gray-500">{user.email}</p>
+              <p className="text-sm text-gray-500">
+                {user.isOnline ? "🟢 Online" : user.email}
+              </p>
             </div>
           </div>
         ))}
