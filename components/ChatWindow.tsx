@@ -9,6 +9,7 @@ interface Message {
     _id: string;
     name: string;
   };
+  seenBy: string[];
   createdAt: string;
 }
 
@@ -60,18 +61,33 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
     }
   };
 
-  useEffect(() => {
-    if (!currentUserId) return;
-    socket.connect();
-    socket.emit("user-online", currentUserId);
-    socket.on("receive-message", (message: Message) => {
-      setMessages((prev) => [...prev, message]);
-    });
-    return () => {
-      socket.off("receive-message");
-      socket.disconnect();
-    };
-  }, [currentUserId]);
+ useEffect(() => {
+  if (!currentUserId) return;
+  socket.connect();
+  socket.emit("user-online", currentUserId);
+
+  socket.on("receive-message", (message: Message) => {
+    setMessages((prev) => [...prev, message]);
+  });
+
+  // Seen event suno
+  socket.on("messages-seen", ({ userId }) => {
+    setMessages((prev) =>
+      prev.map((msg) => ({
+        ...msg,
+        seenBy: msg.seenBy.includes(userId)
+          ? msg.seenBy
+          : [...msg.seenBy, userId],
+      }))
+    );
+  });
+
+  return () => {
+    socket.off("receive-message");
+    socket.off("messages-seen");
+    socket.disconnect();
+  };
+}, [currentUserId]);
 
   useEffect(() => {
     if (!conversation) return;
@@ -83,12 +99,24 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function fetchMessages() {
-    const res = await fetch(`/api/messages?conversationId=${conversation._id}`);
-    const data = await res.json();
-    setMessages(data.messages || []);
-  }
+async function fetchMessages() {
+  const res = await fetch(`/api/messages?conversationId=${conversation._id}`);
+  const data = await res.json();
+  setMessages(data.messages || []);
 
+  // Conversation khuli toh seen mark karo
+  await fetch("/api/messages/seen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversationId: conversation._id }),
+  });
+
+  // Socket se sender ko batao
+  socket.emit("mark-seen", {
+    conversationId: conversation._id,
+    userId: currentUserId,
+  });
+}
   async function sendMessage() {
     if (!text.trim() || !conversation) return;
     const res = await fetch("/api/messages", {
@@ -169,11 +197,15 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
                     minute: "2-digit",
                   })}
                 </span>
-                {msg.sender._id === currentUserId && (
-                  <svg className="w-4 h-4 text-blue-400" viewBox="0 0 16 15" fill="currentColor">
-                    <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88a.32.32 0 0 1-.484.033l-.358-.325a.32.32 0 0 0-.484.032l-.378.48a.418.418 0 0 0 .036.54l1.32 1.267a.32.32 0 0 0 .484-.034l6.272-8.048a.366.366 0 0 0-.064-.512zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88a.32.32 0 0 1-.484.033L1.891 7.769a.366.366 0 0 0-.515.006l-.423.433a.364.364 0 0 0 .006.514l3.258 3.185c.143.14.361.125.484-.033l6.272-8.048a.365.365 0 0 0-.063-.51z"/>
-                  </svg>
-                )}
+             {msg.sender._id === currentUserId && (
+  <svg
+    className={`w-4 h-4 ${msg.seenBy?.length > 1 ? "text-blue-400" : "text-gray-500"}`}
+    viewBox="0 0 16 15"
+    fill="currentColor"
+  >
+    <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88a.32.32 0 0 1-.484.033l-.358-.325a.32.32 0 0 0-.484.032l-.378.48a.418.418 0 0 0 .036.54l1.32 1.267a.32.32 0 0 0 .484-.034l6.272-8.048a.366.366 0 0 0-.064-.512zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88a.32.32 0 0 1-.484.033L1.891 7.769a.366.366 0 0 0-.515.006l-.423.433a.364.364 0 0 0 .006.514l3.258 3.185c.143.14.361.125.484-.033l6.272-8.048a.365.365 0 0 0-.063-.51z"/>
+  </svg>
+)}
               </div>
             </div>
           </div>

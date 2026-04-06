@@ -8,7 +8,6 @@ const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-// MongoDB connect karo
 mongoose.connect(process.env.MONGODB_URI || "your_mongodb_uri_here");
 
 app.prepare().then(() => {
@@ -41,6 +40,13 @@ app.prepare().then(() => {
 
     socket.on("send-message", (data) => {
       io.to(data.conversationId).emit("receive-message", data.message);
+    });
+
+    socket.on("mark-seen", (data) => {
+      io.to(data.conversationId).emit("messages-seen", {
+        conversationId: data.conversationId,
+        userId: data.userId,
+      });
     });
 
     socket.on("disconnect", async () => {
