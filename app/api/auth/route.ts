@@ -57,10 +57,10 @@ export async function POST(request: Request) {
       return Response.json({ message: "Token galat hai" }, { status: 401 });
     }
 
-    const { conversationId, text } = await request.json();
+    const { conversationId, encryptedContent, nonce } = await request.json();
 
-    if (!conversationId || !text) {
-      return Response.json({ message: "ConversationId aur text chahiye" }, { status: 400 });
+    if (!conversationId || !encryptedContent || !nonce) {
+      return Response.json({ message: "ConversationId, encryptedContent aur nonce chahiye" }, { status: 400 });
     }
 
     await connectDB();
@@ -69,7 +69,8 @@ export async function POST(request: Request) {
     const message = await Message.create({
       conversationId,
       sender: verified.id,
-      text,
+      encryptedContent,
+      nonce,
       seenBy: [verified.id],
     });
 

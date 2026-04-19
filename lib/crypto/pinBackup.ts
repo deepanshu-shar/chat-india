@@ -17,7 +17,7 @@ async function deriveKeyFromPIN(pin: string, salt: Uint8Array): Promise<CryptoKe
   const pinBytes = new TextEncoder().encode(pin);
   const baseKey = await crypto.subtle.importKey('raw', pinBytes, 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 100_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' },
     baseKey,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -33,7 +33,7 @@ export async function encryptPrivateKeyWithPIN(
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const aesKey = await deriveKeyFromPIN(pin, salt);
 
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, privateKey);
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, privateKey as BufferSource);
 
   const combined = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
   combined.set(salt, 0);
