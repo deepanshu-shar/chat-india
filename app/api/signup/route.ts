@@ -4,12 +4,20 @@ import User from "@/models/User";
 
 export async function POST(request: Request) {
   try {
-    const { name, email, password } = await request.json();
+    const { name, email, password, publicKey, encryptedPrivateKey } = await request.json();
 
     // Sab fields hain?
     if (!name || !email || !password) {
       return Response.json(
-        { message: "Sab fields bharo" },
+        { message: "Naam, email aur password chahiye" },
+        { status: 400 }
+      );
+    }
+
+    // E2EE fields bhi chahiye
+    if (!publicKey || !encryptedPrivateKey) {
+      return Response.json(
+        { message: "E2EE keys chahiye" },
         { status: 400 }
       );
     }
@@ -28,11 +36,13 @@ export async function POST(request: Request) {
     // Password hash karo
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // User banao
+    // User banao with E2EE keys
     const newUser = await User.create({
       name,
       email,
       password: hashedPassword,
+      publicKey,
+      encryptedPrivateKey,
     });
 
     return Response.json(

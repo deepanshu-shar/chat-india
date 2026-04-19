@@ -1,10 +1,14 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import socket from "@/lib/socket";
+import { getPrivateKeyFromIDB, getSharedSecret, computeAndSaveSharedSecret, fromBase64 } from "@/lib/crypto/keyManager";
+import { encryptMessage, decryptMessage } from "@/lib/crypto/encryption";
 
 interface Message {
   _id: string;
   text: string;
+  encryptedContent?: string;
+  nonce?: string;
   sender: {
     _id: string;
     name: string;
@@ -23,20 +27,24 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
   const [text, setText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const [lang, setLang] = useState<"en" | "hi">("en");
+  const [decryptionError, setDecryptionError] = useState("");
+
+  // Cache for shared secrets to avoid recomputing
+  const sharedSecretCache = useRef<Map<string, Uint8Array>>(new Map());
 
   useEffect(() => {
     const savedLang = localStorage.getItem("language") as "en" | "hi";
     if (savedLang) {
       setLang(savedLang);
     }
-    
+
     const checkLang = setInterval(() => {
       const currentLang = localStorage.getItem("language") as "en" | "hi";
       if (currentLang && currentLang !== lang) {
         setLang(currentLang);
       }
     }, 100);
-    
+
     return () => clearInterval(checkLang);
   }, [lang]);
 
@@ -61,33 +69,120 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
     }
   };
 
- useEffect(() => {
-  if (!currentUserId) return;
-  socket.connect();
-  socket.emit("user-online", currentUserId);
+  // Get or compute shared secret for another user
+  async function getOrComputeSharedSecret(otherUserId: string): Promise<Uint8Array | null> {
+    try {
+      console.log("🔐 Getting shared secret for user:", otherUserId);
 
-  socket.on("receive-message", (message: Message) => {
-    setMessages((prev) => [...prev, message]);
-  });
+      // Check cache first
+      if (sharedSecretCache.current.has(otherUserId)) {
+        console.log("✅ Found in cache");
+        return sharedSecretCache.current.get(otherUserId)!;
+      }
 
-  // Seen event suno
-  socket.on("messages-seen", ({ userId }) => {
-    setMessages((prev) =>
-      prev.map((msg) => ({
-        ...msg,
-        seenBy: msg.seenBy.includes(userId)
-          ? msg.seenBy
-          : [...msg.seenBy, userId],
-      }))
-    );
-  });
+      // Try to get from IndexedDB
+      let sharedSecret = await getSharedSecret(otherUserId);
 
-  return () => {
-    socket.off("receive-message");
-    socket.off("messages-seen");
-    socket.disconnect();
-  };
-}, [currentUserId]);
+      if (!sharedSecret) {
+        console.log("❌ Not in IDB, computing new shared secret...");
+
+        // Compute shared secret
+        const myPrivateKey = await getPrivateKeyFromIDB();
+        if (!myPrivateKey) {
+          console.error("❌ CRITICAL: Private key nahi mila IndexedDB mein!");
+          console.error("This means: Keys were NOT saved during signup");
+          return null;
+        }
+
+        console.log("✅ Got my private key from IDB");
+
+        // Fetch other user's public key
+        console.log("🔍 Fetching public key for user:", otherUserId);
+        const pkRes = await fetch(`/api/users/${otherUserId}/public-key`);
+        console.log("📡 Response status:", pkRes.status);
+
+        if (!pkRes.ok) {
+          console.error("❌ Public key fetch fail:", pkRes.statusText);
+          const errorData = await pkRes.json();
+          console.error("Error details:", errorData);
+          return null;
+        }
+
+        console.log("✅ Got their public key from API");
+
+        const { publicKey: publicKeyBase64 } = await pkRes.json();
+        const theirPublicKey = fromBase64(publicKeyBase64);
+
+        // Compute and save shared secret
+        console.log("🔄 Computing ECDH shared secret...");
+        sharedSecret = await computeAndSaveSharedSecret(theirPublicKey, myPrivateKey, otherUserId);
+        console.log("✅ Shared secret computed and saved");
+      } else {
+        console.log("✅ Found shared secret in IDB");
+      }
+
+      // Cache it
+      sharedSecretCache.current.set(otherUserId, sharedSecret);
+      return sharedSecret;
+    } catch (err: any) {
+      console.error("❌ Error getting shared secret:", err);
+      return null;
+    }
+  }
+
+  // Decrypt a single message
+  async function decryptSingleMessage(msg: Message): Promise<Message> {
+    if (!msg.encryptedContent || !msg.nonce) {
+      // Already decrypted or plain text
+      return msg;
+    }
+
+    const senderId = msg.sender._id;
+    const sharedSecret = await getOrComputeSharedSecret(senderId);
+
+    if (!sharedSecret) {
+      console.error("Could not get shared secret for user:", senderId);
+      return { ...msg, text: "[Decryption failed]" };
+    }
+
+    const plaintext = decryptMessage(msg.encryptedContent, msg.nonce, sharedSecret);
+    if (!plaintext) {
+      console.error("Decryption returned null for message:", msg._id);
+      return { ...msg, text: "[Decryption failed]" };
+    }
+
+    return { ...msg, text: plaintext };
+  }
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    socket.connect();
+    socket.emit("user-online", currentUserId);
+
+    socket.on("receive-message", async (encryptedMsg: Message) => {
+      // Decrypt the message before adding to state
+      const decryptedMsg = await decryptSingleMessage(encryptedMsg);
+      setMessages((prev) => [...prev, decryptedMsg]);
+    });
+
+    // Seen event suno
+    socket.on("messages-seen", ({ userId }) => {
+      setMessages((prev) =>
+        prev.map((msg) => ({
+          ...msg,
+          seenBy: msg.seenBy.includes(userId)
+            ? msg.seenBy
+            : [...msg.seenBy, userId],
+        }))
+      );
+    });
+
+    return () => {
+      socket.off("receive-message");
+      socket.off("messages-seen");
+      socket.disconnect();
+    };
+  }, [currentUserId]);
 
   useEffect(() => {
     if (!conversation) return;
@@ -99,37 +194,117 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-async function fetchMessages() {
-  const res = await fetch(`/api/messages?conversationId=${conversation._id}`);
-  const data = await res.json();
-  setMessages(data.messages || []);
+  async function fetchMessages() {
+    try {
+      const res = await fetch(`/api/messages?conversationId=${conversation._id}`);
+      const data = await res.json();
 
-  // Conversation khuli toh seen mark karo
-  await fetch("/api/messages/seen", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ conversationId: conversation._id }),
-  });
+      // Decrypt all messages
+      const decryptedMessages = await Promise.all(
+        (data.messages || []).map((msg: Message) => decryptSingleMessage(msg))
+      );
 
-  // Socket se sender ko batao
-  socket.emit("mark-seen", {
-    conversationId: conversation._id,
-    userId: currentUserId,
-  });
-}
+      setMessages(decryptedMessages);
+      setDecryptionError("");
+
+      // Conversation khuli toh seen mark karo
+      await fetch("/api/messages/seen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: conversation._id }),
+      });
+
+      // Socket se sender ko batao
+      socket.emit("mark-seen", {
+        conversationId: conversation._id,
+        userId: currentUserId,
+      });
+    } catch (err: any) {
+      console.error("Error fetching messages:", err);
+      setDecryptionError("Messages fetch nahi hua");
+    }
+  }
+
   async function sendMessage() {
+    // sendMessage function ke andar, top pe add karo
+console.log("otherUser full object:", conversation.otherUser);
+console.log("otherUserId being used:", conversation.otherUser?._id);
     if (!text.trim() || !conversation) return;
-    const res = await fetch("/api/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId: conversation._id, text }),
-    });
-    const data = await res.json();
-    socket.emit("send-message", {
-      conversationId: conversation._id,
-      message: data.message,
-    });
-    setText("");
+
+    const otherUserId = conversation.otherUser?._id;
+    if (!otherUserId) {
+      alert("Recipient nahi mila");
+      return;
+    }
+
+    try {
+      console.log("📤 Sending message...");
+
+      let encryptedContent = text; // Default: plaintext
+      let nonce = "no-encryption"; // Default: no encryption
+
+      // Try to encrypt (if E2EE keys available)
+      try {
+        const sharedSecret = await getOrComputeSharedSecret(otherUserId);
+        if (sharedSecret) {
+          const encrypted = encryptMessage(text, sharedSecret);
+          encryptedContent = encrypted.encryptedContent;
+          nonce = encrypted.nonce;
+          console.log("✅ Message encrypted");
+        } else {
+          console.log("⚠️ Encryption failed, sending plaintext");
+        }
+      } catch (encErr: any) {
+        console.error("⚠️ Encryption error:", encErr);
+        console.log("Fallback: Sending plaintext");
+      }
+
+      // Send to API
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: conversation._id,
+          encryptedContent,
+          nonce,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("API request failed");
+      }
+
+      const data = await res.json();
+
+      console.log("✅ Message saved on server");
+
+      // Emit via socket
+      socket.emit("send-message", {
+        conversationId: conversation._id,
+        message: {
+          ...data.message,
+          text: text,
+        },
+      });
+
+      // Add to local messages
+      setMessages((prev) => [
+        ...prev,
+        {
+          _id: data.message._id,
+          text: text,
+          sender: { _id: currentUserId, name: "You" },
+          seenBy: [currentUserId],
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      setText("");
+      console.log("✅ Message sent!");
+    } catch (err: any) {
+      console.error("❌ Error sending message:", err);
+      alert("Message bhejne mein error: " + err.message);
+    }
   }
 
   if (!conversation) {

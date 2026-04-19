@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 
-const SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET);
+const SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
 
 // Token banao
 export async function createToken(payload: any) {
