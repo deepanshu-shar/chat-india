@@ -132,26 +132,11 @@ export default function ChatWindow({ conversation, currentUserId }: Props) {
 
   // Decrypt a single message
   async function decryptSingleMessage(msg: Message): Promise<Message> {
-    if (!msg.encryptedContent || !msg.nonce) {
-      // Already decrypted or plain text
-      return msg;
+    // Since E2EE is disabled, just show encryptedContent as the text
+    if (msg.encryptedContent && !msg.text) {
+      msg.text = msg.encryptedContent;
     }
-
-    const senderId = msg.sender._id;
-    const sharedSecret = await getOrComputeSharedSecret(senderId);
-
-    if (!sharedSecret) {
-      console.error("Could not get shared secret for user:", senderId);
-      return { ...msg, text: "[Decryption failed]" };
-    }
-
-    const plaintext = decryptMessage(msg.encryptedContent, msg.nonce, sharedSecret);
-    if (!plaintext) {
-      console.error("Decryption returned null for message:", msg._id);
-      return { ...msg, text: "[Decryption failed]" };
-    }
-
-    return { ...msg, text: plaintext };
+    return msg;
   }
 
   useEffect(() => {
@@ -240,24 +225,9 @@ console.log("otherUserId being used:", conversation.otherUser?._id);
     try {
       console.log("📤 Sending message...");
 
-      let encryptedContent = text; // Default: plaintext
-      let nonce = "no-encryption"; // Default: no encryption
-
-      // Try to encrypt (if E2EE keys available)
-      try {
-        const sharedSecret = await getOrComputeSharedSecret(otherUserId);
-        if (sharedSecret) {
-          const encrypted = encryptMessage(text, sharedSecret);
-          encryptedContent = encrypted.encryptedContent;
-          nonce = encrypted.nonce;
-          console.log("✅ Message encrypted");
-        } else {
-          console.log("⚠️ Encryption failed, sending plaintext");
-        }
-      } catch (encErr: any) {
-        console.error("⚠️ Encryption error:", encErr);
-        console.log("Fallback: Sending plaintext");
-      }
+      // ⚠️ E2EE DISABLED for now - send plaintext instead
+      let encryptedContent = text; // Just use plaintext
+      let nonce = "plaintext";      // Marker
 
       // Send to API
       const res = await fetch("/api/messages", {
